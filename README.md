@@ -130,13 +130,6 @@ https://<envId>.<region>.environment.api.powerplatform.com
   ?api-version=1
 ```
 
-例:
-
-```
-https://default464ded72195041508811b47ceb7183.44.environment.api.powerplatform.com
-  /powerautomate/automations/direct/workflows/518e3b87210247c99efddafd635896dd/triggers/manual/paths/invoke?api-version=1
-```
-
 [WeeklyDefenderIncidentReport_webhook_openapi.yaml](WeeklyDefenderIncidentReport_webhook_openapi.yaml)
 を編集します:
 
