@@ -57,19 +57,21 @@ paths:
           name: sp
           required: true
           description: >-
-            SAS 権限パラメータ。Power Automate の「全員」URL に含まれる sp の値を
-            default に設定する（例 /triggers/manual/run）。
+            SAS 権限パラメータ。常に "/triggers/manual/run" を指定すること。
           schema:
             type: string
+            enum:
+              - "/triggers/manual/run"
             default: "/triggers/manual/run"
         - in: query
           name: sv
           required: true
           description: >-
-            SAS バージョンパラメータ。Power Automate の「全員」URL に含まれる sv の値を
-            default に設定する（例 1.0）。
+            SAS バージョンパラメータ。常に "1.0" を指定すること。
           schema:
             type: string
+            enum:
+              - "1.0"
             default: "1.0"
       requestBody:
         description: Power Automate に渡すレポートデータ。
