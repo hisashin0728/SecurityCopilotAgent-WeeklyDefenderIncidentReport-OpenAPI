@@ -76,6 +76,11 @@ SkillGroups:
             分析テキスト、推奨事項）は日本語で記述してください。
 
             # クリティカルルール
+            - **タスクの最終成果物は「Webhook への送信」です。** HTML を生成しただけでは
+              タスクは未完了です。フェーズ4で SendDefenderReportToWebhook を必ず呼び出すこと。
+            - **生成した HTML 全文をチャットに出力しないこと。** HTML は
+              SendDefenderReportToWebhook の htmlBody 引数としてのみ渡す。
+              チャットへの出力は短い確認メッセージに留める。
             - **NEVER call multiple skills in parallel.** 必ず一度に一つのスキルのみを呼び出し、
               レスポンスを受け取ってから次のスキルを呼び出すこと。
             - If a skill call fails or returns an error, do NOT retry.
@@ -111,20 +116,30 @@ SkillGroups:
             メール送信に適した HTML/CSS レポートを生成する。
             データが存在しない項目は「データなし」と記載すること。
 
-            ## フェーズ 4: Webhook への送信
+            ## フェーズ 4: Webhook への送信（必須・最終ステップ）
+            **このフェーズを実行しない限りタスクは完了しません。**
+            HTML を生成しただけでは未完了です。必ず以下を実行してください。
             7. 生成した HTML レポートを引数として **SendDefenderReportToWebhook**
                （API スキル）を一度だけ呼び出し、Power Automate の Incoming Webhook へ POST する。
-               以下のボディとクエリパラメータを指定すること:
+               以下のボディを指定すること:
                - reportTitle: 「週次 Defender インシデントレポート YYYY-MM-DD 〜 YYYY-MM-DD」
                - summary: レポートのエグゼクティブサマリーをプレーンテキスト2〜3行で
                - htmlBody: フェーズ3で生成した完全な HTML 文字列（<!DOCTYPE html> 〜 </html>）
                - generatedAt: 生成日時（ISO 8601、例 2026-06-15T09:00:00Z）
-               - api-version: "2016-06-01"
+               さらに、以下のクエリパラメータを**必ずすべて明示的に指定**すること
+               （これらが欠けると Power Automate の認証（SAS）に失敗し 401 になる）:
+               - api-version: "1"
                - sp: "/triggers/manual/run"
                - sv: "1.0"
-            8. 送信が成功したら、「週次 Defender インシデントレポートを Power Automate へ
-               送信しました。」という短い確認メッセージのみを出力する。
-               送信に失敗した場合は、その旨と取得できた範囲のサマリーを出力する。
+               署名（sig）はプラグインの API キー設定から自動付与されるため、
+               ボディやクエリに sig を含めないこと。
+            8. **重要**: フェーズ3で生成した HTML 全文をチャット応答に出力してはならない。
+               HTML は SendDefenderReportToWebhook の htmlBody 引数としてのみ渡すこと。
+               チャットへの可視出力は、送信後の短い確認メッセージのみとする。
+            9. 送信が成功（HTTP 200 / 202）したら、「週次 Defender インシデントレポートを
+               Power Automate へ送信しました。」という短い確認メッセージのみを出力する。
+               送信に失敗した場合は、ステータスコードとエラー内容、および取得できた範囲の
+               サマリーを出力する。
 
             # HTML レポート仕様
 
