@@ -8,7 +8,16 @@ Descriptor:
     Power Automate の Incoming Webhook（HTTP 要求の受信時トリガー）へ
     POST するエージェント。Power Automate 側でメール送信や Teams 投稿を行う。
   # API スキルグループ（Webhook 送信）の認証。
-  # Power Automate Webhook URL の署名 (sig) を ApiKey として安全に入力する。
+  #
+  # 【重要】Power Automate を「テナント内のユーザーのみ」(OAuth) にすると、
+  # Security Copilot エージェントの On-Behalf-Of 認証では Flow API
+  # (service.flow.microsoft.com) のトークンを取得できず、
+  # AADSTS65002（ファーストパーティ間の事前承認が必要）で失敗する。
+  # このため Webhook 送信には ApiKey 方式を使用する:
+  #   1. Power Automate トリガーの「フローをトリガーできるユーザー」を
+  #      「全員 (Anyone)」に設定する。
+  #   2. 生成される URL の末尾に付く sig（SAS 署名）をプラグイン設定時に
+  #      ApiKey として入力する（マニフェスト/OpenAPI には書き込まない）。
   # KQL / Agent スキルグループは Microsoft の委任認証を使用するため本設定の影響を受けない。
   SupportedAuthTypes:
     - ApiKey
@@ -290,4 +299,4 @@ SkillGroups:
   - Format: API
     Settings:
       # 自分の OpenAPI 仕様を公開 URL でホストし、その URL に置き換えること。
-      OpenApiSpecUrl: https://raw.githubusercontent.com/YOUR-ORG/YOUR-REPO/main/WeeklyDefenderIncidentReport_webhook_openapi.yaml
+      OpenApiSpecUrl: https://raw.githubusercontent.com/hisashin0728/SecurityCopilotAgent-WeeklyDefenderIncidentReport-OpenAPI/refs/heads/main/WeeklyDefenderIncidentReport_webhook_openapi.yaml
