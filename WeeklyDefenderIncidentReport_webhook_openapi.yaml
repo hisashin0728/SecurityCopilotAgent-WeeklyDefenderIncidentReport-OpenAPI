@@ -11,23 +11,25 @@ info:
 # ─────────────────────────────────────────────────────────────
 # 設定手順（プラグイン適用前に編集すること）
 #   1. Power Automate で「HTTP 要求の受信時」トリガーを持つフローを作成し、
-#      「フローをトリガーできるユーザー」を「テナント内のユーザーのみ」に設定する。
+#      「フローをトリガーできるユーザー」を「全員 (Anyone)」に設定する。
+#      （※「テナント内のユーザーのみ」にすると Security Copilot の OBO 認証では
+#        Flow API トークンを取得できず AADSTS65002 で失敗するため、ApiKey 方式を使う）
 #   2. フロー保存後に表示される HTTP POST URL をコピーする。
-#      新アーキテクチャ（Power Platform）の URL は次の形式（sig を含まない）:
+#      新アーキテクチャ（Power Platform）の「全員」URL は次の形式（末尾に sig を含む）:
 #      https://<envId>.<region>.environment.api.powerplatform.com
 #        /powerautomate/automations/direct/workflows/<workflowId>/triggers/manual/paths/invoke
-#        ?api-version=1
+#        ?api-version=1&sp=<...>&sv=<...>&sig=<署名>
 #   3. 下記 servers.url を自分の <envId>.<region>.environment.api.powerplatform.com に書き換える。
 #   4. 下記 paths のキー（/powerautomate/.../invoke）の <workflowId> を自分の値に書き換える。
-#   5. 認証は OAuth（Microsoft Entra ID）。Security Copilot 側は AADDelegated を使用し、
-#      audience（公開クラウド: https://service.flow.microsoft.com/）のトークンを付与する。
-#      この URL には署名（sig）は含まれない。
-#   6. 本ファイルを GitHub Gist などの公開 URL でホストし、その URL を
+#   5. sp / sv パラメータの default 値を自分の URL の値に書き換える。
+#   6. 認証は ApiKey。URL 末尾の sig（SAS 署名）はマニフェストの ApiKey 設定として
+#      プラグイン適用時に入力する（本ファイルやマニフェストには書き込まない）。
+#   7. 本ファイルを GitHub Gist などの公開 URL でホストし、その URL を
 #      マニフェストの OpenApiSpecUrl に設定する。
 # ─────────────────────────────────────────────────────────────
 
 servers:
-  - url: https://default464ded72195041508811b47ceb7183.44.environment.api.powerplatform.com
+  - url: default464ded72195041508811b47ceb7183.44.environment.api.powerplatform.com
 
 paths:
   /powerautomate/automations/direct/workflows/518e3b87210247c99efddafd635896dd/triggers/manual/paths/invoke:
@@ -51,6 +53,24 @@ paths:
             default: "1"
             enum:
               - "1"
+        - in: query
+          name: sp
+          required: true
+          description: >-
+            SAS 権限パラメータ。Power Automate の「全員」URL に含まれる sp の値を
+            default に設定する（例 /triggers/manual/run）。
+          schema:
+            type: string
+            default: "/triggers/manual/run"
+        - in: query
+          name: sv
+          required: true
+          description: >-
+            SAS バージョンパラメータ。Power Automate の「全員」URL に含まれる sv の値を
+            default に設定する（例 1.0）。
+          schema:
+            type: string
+            default: "1.0"
       requestBody:
         description: Power Automate に渡すレポートデータ。
         required: true
@@ -89,6 +109,6 @@ paths:
         "400":
           description: 不正なリクエスト。
         "401":
-          description: 認証に失敗した（Entra ID トークンが無効、または audience 不一致）。
+          description: 認証に失敗した（sig 署名が無効、または欠落している）。
         "403":
-          description: 権限不足（テナント外、または許可されていないユーザー）。
+          description: 権限不足（SAS 署名が一致しない、または失効している）。
