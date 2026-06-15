@@ -1,0 +1,102 @@
+openapi: 3.0.0
+info:
+  title: Power Automate Incoming Webhook (Weekly Defender Incident Report)
+  description: >-
+    週次 Defender インシデントレポート（HTML）を Power Automate の
+    「HTTP 要求の受信時 (When a HTTP request is received)」トリガー宛に
+    POST するための Webhook エンドポイント。
+    生成された HTML レポートを JSON ボディとして送信する。
+  version: "1.0"
+
+# ─────────────────────────────────────────────────────────────
+# 設定手順（プラグイン適用前に編集すること）
+#   1. Power Automate で「HTTP 要求の受信時」トリガーを持つフローを作成する。
+#   2. フロー保存後に表示される HTTP POST URL をコピーする。URL は次の形式:
+#      https://<host>.logic.azure.com/workflows/<workflowId>/triggers/manual/paths/invoke
+#        ?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=<署名>
+#   3. 下記 servers.url を自分の <host>.logic.azure.com に書き換える。
+#   4. 下記 paths のキー（/workflows/.../invoke）の <workflowId> を自分の値に書き換える。
+#   5. クエリパラメータ sig（署名）はマニフェスト側の ApiKey 設定で安全に入力する。
+#      （この OpenAPI には署名を書かない＝シークレットをモデルに露出させない）
+#   6. 本ファイルを GitHub Gist などの公開 URL でホストし、その URL を
+#      マニフェストの OpenApiSpecUrl に設定する。
+# ─────────────────────────────────────────────────────────────
+
+servers:
+  - url: https://YOUR-LOGIC-APP-HOST.logic.azure.com
+
+paths:
+  /workflows/YOUR-WORKFLOW-ID/triggers/manual/paths/invoke:
+    post:
+      operationId: SendDefenderReportToWebhook
+      summary: 週次 Defender インシデントレポート(HTML)を Power Automate Webhook に送信する
+      description: |
+        生成済みの週次 Defender インシデントレポート(HTML)を、
+        Power Automate の Incoming Webhook (HTTP 要求の受信時トリガー) に
+        JSON ボディとして POST する。Power Automate 側でメール送信・
+        Teams 投稿・SharePoint 保存などの後続処理を行う。
+        #ExamplePrompts 週次 Defender インシデントレポートを Power Automate に送信して
+        #ExamplePrompts 生成した HTML レポートを Webhook に POST して
+      parameters:
+        - in: query
+          name: api-version
+          required: true
+          description: Logic Apps API バージョン。固定値 2016-06-01 を指定する。
+          schema:
+            type: string
+            default: "2016-06-01"
+            enum:
+              - "2016-06-01"
+        - in: query
+          name: sp
+          required: true
+          description: 共有アクセス署名のパーミッション。固定値 /triggers/manual/run を指定する。
+          schema:
+            type: string
+            default: "/triggers/manual/run"
+        - in: query
+          name: sv
+          required: true
+          description: 共有アクセス署名のバージョン。固定値 1.0 を指定する。
+          schema:
+            type: string
+            default: "1.0"
+      requestBody:
+        description: Power Automate に渡すレポートデータ。
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reportTitle
+                - htmlBody
+              properties:
+                reportTitle:
+                  type: string
+                  description: レポートのタイトル（メール件名などに利用）。
+                  example: "週次 Defender インシデントレポート 2026-06-08 〜 2026-06-14"
+                summary:
+                  type: string
+                  description: レポートの要約（プレーンテキスト数行）。
+                htmlBody:
+                  type: string
+                  description: >-
+                    メール本文として送信可能な、インライン CSS を含む完全な HTML 文字列。
+                    <!DOCTYPE html> で始まり </html> で終わる。
+                generatedAt:
+                  type: string
+                  description: レポート生成日時（ISO 8601、例 2026-06-15T09:00:00Z）。
+      responses:
+        "200":
+          description: 正常に受信された。
+          content:
+            application/json:
+              schema:
+                type: object
+        "202":
+          description: 受信され、非同期で処理中。
+        "400":
+          description: 不正なリクエスト。
+        "401":
+          description: 署名が無効、または認証に失敗した。
