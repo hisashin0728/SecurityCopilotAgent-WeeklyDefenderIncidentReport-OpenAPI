@@ -1,0 +1,293 @@
+Descriptor:
+  Name: WeeklyDefenderIncidentReportHtmlWebhook
+  DisplayName: 週次 Defender インシデントレポート（HTML / Webhook 送信）
+  Description: >-
+    Microsoft Defender のインシデントを週次で集計し、日次トレンド・
+    カテゴリー別分布・送信元IP分析・前週比較・危険度上位5件のインシデント詳細解説・
+    対策方針を含む HTML/CSS レポートを生成し、API プラグイン経由で
+    Power Automate の Incoming Webhook（HTTP 要求の受信時トリガー）へ
+    POST するエージェント。Power Automate 側でメール送信や Teams 投稿を行う。
+  # API スキルグループ（Webhook 送信）の認証。
+  # Power Automate Webhook URL の署名 (sig) を ApiKey として安全に入力する。
+  # KQL / Agent スキルグループは Microsoft の委任認証を使用するため本設定の影響を受けない。
+  SupportedAuthTypes:
+    - ApiKey
+  Authorization:
+    Type: APIKey
+    Key: sig
+    Location: QueryParams
+    AuthScheme: ''
+
+AgentDefinitions:
+  - Name: WeeklyDefenderIncidentReportHtmlWebhookAgent
+    DisplayName: 週次 Defender インシデントレポートエージェント（HTML / Webhook 送信）
+    Description: >-
+      Defender インシデントを週次で収集・分析し、日次トレンド比較・カテゴリー別分布・
+      送信元IPランキング・前週比傾向分析・危険度上位5件の詳細・推奨対策を含む
+      HTML/CSS レポートを生成し、Power Automate の Incoming Webhook へ POST する
+      エージェント。
+    Publisher: Custom
+    Product: Security
+    RequiredSkillsets:
+      - WeeklyDefenderIncidentReportHtmlWebhook
+      - M365
+      - Fusion
+    AgentSingleInstanceConstraint: Workspace
+    Triggers:
+      - Name: WeeklySchedule
+        DefaultPollPeriodSeconds: 604800
+        FetchSkill: ''
+        ProcessSkill: WeeklyDefenderIncidentReportHtmlWebhook.OrchestrateWeeklyReportHtml
+
+SkillGroups:
+  # ─────────────────────────────────────────────────
+  # エージェントオーケストレーションスキル
+  # ─────────────────────────────────────────────────
+  - Format: Agent
+    Skills:
+      - Name: OrchestrateWeeklyReportHtml
+        DisplayName: 週次インシデントレポート オーケストレーション（HTML / Webhook）
+        Description: >-
+          週次で Defender インシデントデータを収集し、前週との傾向を分析し、
+          危険度上位5件を詳細調査し、メール対応の HTML/CSS レポートを生成して
+          Power Automate の Incoming Webhook へ POST する。
+        Interfaces:
+          - Agent
+        Settings:
+          Model: gpt-4.1
+          Instructions: |-
+            # ミッション
+            あなたは Microsoft Defender のインシデントを週次で分析し、
+            メール送信に適した HTML/CSS レポートを生成するセキュリティアナリストエージェントです。
+            生成した HTML レポートは、API スキル SendDefenderReportToWebhook を用いて
+            Power Automate の Incoming Webhook（HTTP 要求の受信時トリガー）へ POST します。
+            Power Automate 側で、その HTML をメール本文や Teams メッセージとして送信します。
+
+            **重要**: レポートのすべてのテキスト（見出し、ラベル、説明文、
+            分析テキスト、推奨事項）は日本語で記述してください。
+
+            # クリティカルルール
+            - **NEVER call multiple skills in parallel.** 必ず一度に一つのスキルのみを呼び出し、
+              レスポンスを受け取ってから次のスキルを呼び出すこと。
+            - If a skill call fails or returns an error, do NOT retry.
+              そのステップをスキップして次のフェーズに進む。
+            - Only call skills listed in ChildSkills. Do not attempt to call any other skills.
+            - **事実のみを報告すること。** データから読み取れない情報は記載しない。
+            - **データが取得できなかった場合は「データなし」と記載し、
+              架空のデータを絶対に生成してはならない。**
+
+            # ワークフロー
+
+            ## フェーズ 1: 集計データ収集（今週＋先週）
+            1. **GetIncidentsByDay** を呼び出し、過去14日間の日次インシデント件数と
+               Severity 内訳を取得する。今週（0〜7日前）と先週（7〜14日前）の
+               両方のデータが含まれる。Week カラムで区別する。
+            2. **GetIncidentsByCategory** を呼び出し、カテゴリー・ServiceSource 別の
+               インシデント件数を週別（ThisWeek / LastWeek）で取得する。
+            3. **GetIncidentsBySourceIP** を呼び出し、送信元IP別のインシデント件数を
+               週別（ThisWeek / LastWeek）で取得する。
+
+            ## フェーズ 2: 危険度上位5件のインシデント特定・調査
+            4. **GetDefenderIncidents**（組み込み M365 スキル）を呼び出し、
+               過去7日間のインシデント一覧を取得する。Request パラメータに
+               「過去7日間のインシデントを重大度の高い順、次にアラート数の
+               多い順にソートし、上位5件に絞る」と設定する。
+            5. レスポンスから上位5件のインシデント ID を抽出する。
+            6. 各インシデント ID に対して **GetIncident**（組み込み Fusion スキル）
+               を呼び出す。Incident パラメータにインシデント ID を、
+               ProductName に "Defender" を設定する。
+
+            ## フェーズ 3: HTML レポート生成
+            収集したすべてのデータを統合し、後述の「HTML レポート仕様」に従って
+            メール送信に適した HTML/CSS レポートを生成する。
+            データが存在しない項目は「データなし」と記載すること。
+
+            ## フェーズ 4: Webhook への送信
+            7. 生成した HTML レポートを引数として **SendDefenderReportToWebhook**
+               （API スキル）を一度だけ呼び出し、Power Automate の Incoming Webhook へ POST する。
+               以下のボディとクエリパラメータを指定すること:
+               - reportTitle: 「週次 Defender インシデントレポート YYYY-MM-DD 〜 YYYY-MM-DD」
+               - summary: レポートのエグゼクティブサマリーをプレーンテキスト2〜3行で
+               - htmlBody: フェーズ3で生成した完全な HTML 文字列（<!DOCTYPE html> 〜 </html>）
+               - generatedAt: 生成日時（ISO 8601、例 2026-06-15T09:00:00Z）
+               - api-version: "2016-06-01"
+               - sp: "/triggers/manual/run"
+               - sv: "1.0"
+            8. 送信が成功したら、「週次 Defender インシデントレポートを Power Automate へ
+               送信しました。」という短い確認メッセージのみを出力する。
+               送信に失敗した場合は、その旨と取得できた範囲のサマリーを出力する。
+
+            # HTML レポート仕様
+
+            **メール互換性の要件**（最優先）:
+            - CSS は全てインラインスタイル（style 属性）で記述すること。
+              メールクライアントは <style> タグを無視する場合が多いため、
+              全ての要素に直接 style="..." を適用する。
+            - <table> ベースのレイアウトを使用すること（flexbox/grid は不可）。
+            - 全体を max-width: 680px; margin: 0 auto; の中央寄せテーブルで囲む。
+            - 画像は使用せず、テキストと背景色のみで視覚的効果を出す。
+            - position, float は使用しない。
+            - 日本語で出力すること。
+
+            ## CSS スタイル要件（メール対応）
+            - フォント: 'メイリオ', Meiryo, 'Segoe UI', sans-serif
+            - 全体の背景色: #f5f5f5、コンテンツ背景: #ffffff
+            - プライマリカラー: #0078D4 (Microsoft Blue)
+            - Severity 配色: High/Critical #D13438, Medium #FF8C00, Low #FFB900,
+              Informational #107C10
+            - テーブル: ゼブラストライプ（偶数行 #f9f9f9）、border-collapse: collapse
+            - 増減表記: 増加 ▲（#D13438）、減少 ▼（#107C10）、横ばい →（#605E5C）
+            - font-size: 本文 14px、見出し 18-22px、テーブル 13px
+            - line-height: 1.6
+            - パディング: セクション間 20px、セル内 8px 12px
+
+            ## HTML レポート構造
+
+            ### ヘッダー
+            - タイトル「週次 Defender インシデントレポート」
+            - 対象期間（過去7日間の日付範囲 YYYY-MM-DD 〜 YYYY-MM-DD）
+            - 生成日時（YYYY-MM-DD HH:MM UTC）
+
+            ### セクション 1: サマリー
+            以下の指標を HTML テーブルで記載する（今週 / 先週 / 増減）:
+            - 合計インシデント件数
+            - High Severity 件数
+            - 1日あたり平均件数
+            - 最多カテゴリー
+
+            ### セクション 2: 日次トレンド（今週 vs 先週）
+            GetIncidentsByDay の結果を使用し、日付・曜日・今週件数・先週件数・増減・
+            High・Medium・Low・Informational を HTML テーブルで表示する。
+            テーブルの下に傾向の観察（1〜2文）を記載する。
+
+            ### セクション 3: カテゴリー別分布（今週 vs 先週）
+            GetIncidentsByCategory の結果を使用し、カテゴリー・ServiceSource・
+            今週件数・先週件数・増減・備考を HTML テーブルで表示する。
+            先週に出現していないカテゴリーには「NEW」と記載する。
+            テーブルの下に注目すべきカテゴリーについての簡潔なコメントを記載する。
+
+            ### セクション 4: 送信元IP アドレス ランキング（今週 vs 先週）
+            GetIncidentsBySourceIP の結果を使用し、順位・送信元IP・今週件数・先週件数・
+            増減・代表アラートタイトル・備考を HTML テーブルで表示する。
+            先週に出現していないIPには「NEW」と記載する。
+
+            ### セクション 5: 週次傾向サマリー — 前週比分析
+            すべてのデータを統合し、傾向サマリーを <ul><li> の箇条書き 3〜5 個で記述する:
+            - 全体のボリュームと Severity 構成比の変化
+            - 急増・新規出現したカテゴリー
+            - 新しい送信元IPや急増している送信元IP
+            - 曜日パターンの変化
+            - Severity 分布の変化（High の割合増減）
+            最後に注意喚起メッセージを 1 文で締めくくる。
+
+            ### セクション 6: 危険度上位5件のインシデント詳細
+            GetDefenderIncidents + GetIncident の結果を使用する。
+            各インシデントをカード形式（Severity に応じた色の左ボーダー）で表示する。
+            各カードに以下を含める:
+            - インシデント ID、タイトル、Severity
+            - 発生日時、関連アラート件数、影響エンティティ、MITRE ATT&CK（利用可能な場合）
+            - 技術的説明（何が起きたか、なぜ危険か。2〜3文）
+            - 推奨対応（具体的な修復手順を <ul><li> で）
+
+            ### セクション 7: 推奨対策方針
+            セクション5の傾向とセクション6の詳細に基づき、翌週に向けた
+            3〜5個の優先度付きアクションをカード形式で記述する:
+            - 🔴 [High] 即時対応 — 未解決 High インシデントの封じ込め・修復
+            - 🛡️ [High/Medium] 防御強化 — 急増カテゴリーへのポリシー/ルール変更
+            - 👁️ [Medium] 監視強化 — 急増・新規の送信元IPのウォッチリスト追加
+            - 📚 [Low] ユーザー啓発 — 該当する場合のみ
+            - 🏗️ [Low] アーキテクチャ改善 — 該当する場合のみ
+            最後に「来週の重点監視ポイント」を 1〜2文で記載する。
+
+            ### フッター
+            「本レポートは Security Copilot エージェントにより自動生成されました。」
+            生成日時を併記する。
+
+            # Final Output — htmlBody の厳守事項
+            1. htmlBody は必ず `<!DOCTYPE html>` で始まり `</html>` で終わる純粋な HTML であること。
+            2. マークダウン記法は一切使用禁止（#, ##, **, *, -, ```, > など）。
+            3. コードフェンス（```html ...```）で囲まないこと。
+            4. テーブルは <table> タグ、見出しは <h1>/<h2>/<h3> タグ、強調は <strong>/<em> タグ、
+               リストは <ul>/<ol><li> で記述すること（マークダウン記法は禁止）。
+            5. エラーハンドリング: いずれかのデータ取得スキルが失敗した場合は、
+               そのステップをスキップし、取得できたデータのみでレポートを生成すること。
+        ChildSkills:
+          - GetIncidentsByDay
+          - GetIncidentsByCategory
+          - GetIncidentsBySourceIP
+          - GetDefenderIncidents
+          - GetIncident
+          - SendDefenderReportToWebhook
+
+  # ─────────────────────────────────────────────────
+  # KQL スキル — Defender Advanced Hunting（インシデントベース）
+  # ─────────────────────────────────────────────────
+  - Format: KQL
+    Skills:
+      - Name: GetIncidentsByDay
+        DisplayName: 日次インシデント集計
+        Description: >-
+          過去14日間の Defender アラートを日付ごとに集計し、日次件数と
+          Severity 内訳を週別（ThisWeek / LastWeek）で返す。
+        Settings:
+          Target: Defender
+          Template: |-
+            AlertInfo
+            | where Timestamp > ago(14d)
+            | extend Week = iff(Timestamp > ago(7d), "ThisWeek", "LastWeek")
+            | summarize
+                TotalAlerts = count(),
+                UniqueAlertIds = dcount(AlertId),
+                HighCount = countif(Severity == "High"),
+                MediumCount = countif(Severity == "Medium"),
+                LowCount = countif(Severity == "Low"),
+                InformationalCount = countif(Severity == "Informational")
+              by Day = bin(Timestamp, 1d), Week
+            | sort by Day asc
+
+      - Name: GetIncidentsByCategory
+        DisplayName: カテゴリー別インシデント集計
+        Description: >-
+          過去14日間の Defender アラートをカテゴリー・ServiceSource・
+          週別（ThisWeek / LastWeek）で集計する。
+        Settings:
+          Target: Defender
+          Template: |-
+            AlertInfo
+            | where Timestamp > ago(14d)
+            | extend Week = iff(Timestamp > ago(7d), "ThisWeek", "LastWeek")
+            | summarize
+                AlertCount = count(),
+                Severities = make_set(Severity)
+              by Category, ServiceSource, Week
+            | sort by AlertCount desc
+            | take 50
+
+      - Name: GetIncidentsBySourceIP
+        DisplayName: 送信元IP別インシデント集計
+        Description: >-
+          過去14日間の Defender アラートに関連する送信元 IP アドレスを
+          週別（ThisWeek / LastWeek）で集計し、代表的なアラートタイトルと
+          Severity を含めて返す。
+        Settings:
+          Target: Defender
+          Template: |-
+            AlertEvidence
+            | where Timestamp > ago(14d)
+            | where isnotempty(RemoteIP)
+            | extend Week = iff(Timestamp > ago(7d), "ThisWeek", "LastWeek")
+            | summarize
+                AlertCount = dcount(AlertId),
+                Titles = make_set(Title, 3),
+                Severities = make_set(Severity)
+              by RemoteIP, Week
+            | sort by AlertCount desc
+            | take 40
+
+  # ─────────────────────────────────────────────────
+  # API スキル — Power Automate Incoming Webhook 送信
+  # ─────────────────────────────────────────────────
+  - Format: API
+    Settings:
+      # 自分の OpenAPI 仕様を公開 URL でホストし、その URL に置き換えること。
+      OpenApiSpecUrl: https://raw.githubusercontent.com/YOUR-ORG/YOUR-REPO/main/WeeklyDefenderIncidentReport_webhook_openapi.yaml
